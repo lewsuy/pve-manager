@@ -5,7 +5,10 @@ Flask 后端:保存宿主机凭据,聚合展示 CPU/内存/存储/虚拟机信�
 """
 import os
 import re
+from functools import wraps
+
 import secrets
+import json
 import sqlite3
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -91,6 +94,17 @@ def init_db():
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS cache_entries (
+            key TEXT PRIMARY KEY,
+            json_data TEXT NOT NULL,
+            updated_at INTEGER NOT NULL,
+            expires_at INTEGER NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_cache_expires ON cache_entries(expires_at)")
     conn.commit()
     conn.close()
 
@@ -236,70 +250,147 @@ def index():
     return render_template("index.html")
 
 
+
+# ---------------------------------------------------------------- 简单内存缓存
+# 集群数据(11节点x201VM)全量拉取约 20-45 秒,为避免每次打开页面/自动加载都重复等待,
+# 加 60 秒内存缓存(手动点"刷新"时带 refresh=1 强制绕过)。
+_TTL_CACHE = {}
+_CACHE_TTL_SECONDS = 60
+
+def ttl_cache(key_builder):
+    """装饰器:按 key_builder(*args) 生成缓存键,TTL 内直接返回上次结果。"""
+    def deco(fn):
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            key = key_builder(*args, **kwargs)
+            now = time.monotonic()
+            hit = _TTL_CACHE.get(key)
+            if hit is not None and now - hit[0] < _CACHE_TTL_SECONDS:
+                return hit[1]
+            value = fn(*args, **kwargs)
+            _TTL_CACHE[key] = (now, value)
+            if len(_TTL_CACHE) > 200:
+                for k in [k for k, v in _TTL_CACHE.items() if now - v[0] >= _CACHE_TTL_SECONDS]:
+                    _TTL_CACHE.pop(k, None)
+            return value
+        return wrapper
+    return deco
+
+def cache_clear():
+    """清空全部缓存(供管理操作后调用)。"""
+    _TTL_CACHE.clear()
+
+
+# ---------------------------------------------------------------- SQLite 缓存读写
+def get_sqlite_cache(key, ttl_seconds=300):
+    """从 SQLite 读取缓存,返回解析后的 Python 对象,过期或不存在返回 None。"""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        now = int(time.time())
+        row = conn.execute(
+            "SELECT json_data FROM cache_entries WHERE key = ? AND expires_at > ?",
+            (key, now),
+        ).fetchone()
+        conn.close()
+        if row:
+            return json.loads(row["json_data"])
+    except Exception:
+        pass
+    return None
+
+
+def set_sqlite_cache(key, data, ttl_seconds=300):
+    """将 Python 对象序列化后写入 SQLite 缓存。"""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        now = int(time.time())
+        conn.execute(
+            "INSERT OR REPLACE INTO cache_entries (key, json_data, updated_at, expires_at) VALUES (?, ?, ?, ?)",
+            (key, json.dumps(data, ensure_ascii=False), now, now + ttl_seconds),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------- 单个宿主机数据聚合(纯函数,可被预拉脚本复用)
+def summarize_host_row(row):
+    """对单条 hosts 表记录,实时连接 PVE 聚合节点状态。
+    返回与 list_hosts 中 summarize 完全一致的字典。"""
+    info = {
+        "id": row["id"],
+        "name": row["name"],
+        "hostname": row["hostname"],
+        "port": row["port"],
+        "username": row["username"],
+        "realm": row["realm"],
+        "status": "online",
+        "error": None,
+        "nodes": [],
+    }
+    try:
+        client = make_client(row)
+        client.login()
+        for node in client.get_nodes():
+            node_name = node["node"]
+            status = client.get_node_status(node_name) or {}
+            storages = client.get_node_storage(node_name) or []
+            mem = status.get("memory", {})
+            cpu_info = status.get("cpuinfo", {})
+            rootfs = status.get("rootfs", {})
+            storage_list = []
+            for st in storages:
+                if not st.get("active"):
+                    continue
+                storage_list.append({
+                    "name": st.get("storage"),
+                    "type": st.get("type"),
+                    "total_bytes": st.get("total", 0),
+                    "used_bytes": st.get("used", 0),
+                    "used_percent": round(st.get("used", 0) / st["total"] * 100, 1) if st.get("total") else 0,
+                })
+            info["nodes"].append({
+                "node": node_name,
+                "vm_status": node.get("status", "unknown"),
+                "cpu_percent": round(status.get("cpu", 0) * 100, 1),
+                "cpu_cores": cpu_info.get("cpus"),
+                "mem_total_bytes": mem.get("total"),
+                "mem_used_bytes": mem.get("used"),
+                "mem_used_percent": round(mem.get("used", 0) / mem["total"] * 100, 1) if mem.get("total") else 0,
+                "rootfs_total_bytes": rootfs.get("total"),
+                "rootfs_used_bytes": rootfs.get("used"),
+                "rootfs_used_percent": round(rootfs.get("used", 0) / rootfs["total"] * 100, 1) if rootfs.get("total") else 0,
+                "uptime": fmt_uptime(status.get("uptime")),
+                "storages": storage_list,
+            })
+    except PVEAuthError as e:
+        info["status"] = "error"
+        info["error"] = str(e)
+    except Exception as e:  # noqa: BLE001
+        info["status"] = "error"
+        info["error"] = f"获取状态失败: {e}"
+    return info
+
+
 # ---------------------------------------------------------------- 主机管理 API
 @app.route("/api/hosts", methods=["GET"])
+@ttl_cache(lambda: "hosts:" + request.args.get("refresh", "0"))
 def list_hosts():
+    # 优先读取 SQLite 持久缓存( cron 每 5 分钟预热),秒开体验
+    if request.args.get("refresh") != "1":
+        cached = get_sqlite_cache("hosts_summary")
+        if cached is not None:
+            return jsonify(cached)
+
     db = get_db()
     rows = db.execute("SELECT * FROM hosts ORDER BY id").fetchall()
 
-    def summarize(row):
-        info = {
-            "id": row["id"],
-            "name": row["name"],
-            "hostname": row["hostname"],
-            "port": row["port"],
-            "username": row["username"],
-            "realm": row["realm"],
-            "status": "online",
-            "error": None,
-            "nodes": [],
-        }
-        try:
-            client = make_client(row)
-            client.login()
-            for node in client.get_nodes():
-                node_name = node["node"]
-                status = client.get_node_status(node_name) or {}
-                storages = client.get_node_storage(node_name) or []
-                mem = status.get("memory", {})
-                cpu_info = status.get("cpuinfo", {})
-                rootfs = status.get("rootfs", {})
-                storage_list = []
-                for st in storages:
-                    if not st.get("active"):
-                        continue
-                    storage_list.append({
-                        "name": st.get("storage"),
-                        "type": st.get("type"),
-                        "total_bytes": st.get("total", 0),
-                        "used_bytes": st.get("used", 0),
-                        "used_percent": round(st.get("used", 0) / st["total"] * 100, 1) if st.get("total") else 0,
-                    })
-                info["nodes"].append({
-                    "node": node_name,
-                    "vm_status": node.get("status", "unknown"),
-                    "cpu_percent": round(status.get("cpu", 0) * 100, 1),
-                    "cpu_cores": cpu_info.get("cpus"),
-                    "mem_total_bytes": mem.get("total"),
-                    "mem_used_bytes": mem.get("used"),
-                    "mem_used_percent": round(mem.get("used", 0) / mem["total"] * 100, 1) if mem.get("total") else 0,
-                    "rootfs_total_bytes": rootfs.get("total"),
-                    "rootfs_used_bytes": rootfs.get("used"),
-                    "rootfs_used_percent": round(rootfs.get("used", 0) / rootfs["total"] * 100, 1) if rootfs.get("total") else 0,
-                    "uptime": fmt_uptime(status.get("uptime")),
-                    "storages": storage_list,
-                })
-        except PVEAuthError as e:
-            info["status"] = "error"
-            info["error"] = str(e)
-        except Exception as e:  # noqa: BLE001
-            info["status"] = "error"
-            info["error"] = f"获取状态失败: {e}"
-        return info
-
     with ThreadPoolExecutor(max_workers=8) as pool:
-        results = list(pool.map(summarize, rows))
+        results = list(pool.map(summarize_host_row, rows))
 
+    set_sqlite_cache("hosts_summary", results)
     return jsonify(results)
 
 
@@ -449,7 +540,14 @@ def fetch_host_vms(row, include_agent=True):
 
 
 @app.route("/api/hosts/<int:host_id>/vms", methods=["GET"])
+@ttl_cache(lambda host_id: "vms:%s:%s:%s" % (host_id, request.args.get("agent", "1"), request.args.get("refresh", "0")))
 def list_vms(host_id):
+    # 优先读取 SQLite 持久缓存
+    if request.args.get("refresh") != "1":
+        cached = get_sqlite_cache(f"host_vms:{host_id}")
+        if cached is not None:
+            return jsonify(cached)
+
     db = get_db()
     row = db.execute("SELECT * FROM hosts WHERE id = ?", (host_id,)).fetchone()
     if row is None:
@@ -459,6 +557,7 @@ def list_vms(host_id):
     vms, error = fetch_host_vms(row, include_agent=include_agent)
     if error:
         return jsonify({"error": error}), 400
+    set_sqlite_cache(f"host_vms:{host_id}", vms)
     return jsonify(vms)
 
 

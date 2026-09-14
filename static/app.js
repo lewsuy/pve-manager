@@ -53,10 +53,16 @@ function gauge(label, pct, color) {
 }
 
 // -------------------------------------------------- 宿主机表格
-async function loadHosts() {
+async function loadHosts(forceRefresh = false) {
   const tbody = document.getElementById("host-tbody");
+  // 立即显示自动加载提示,避免用户等待 30-45 秒无反馈
+  const section = document.getElementById("vm-section");
+  section.classList.remove("hidden");
+  document.getElementById("vm-section-title").textContent = "虚拟机列表";
+  document.getElementById("vm-section-sub").textContent = "正在自动加载虚拟机列表(含 Guest Agent 数据,首次可能较慢)…";
+  document.getElementById("vm-tbody").innerHTML = `<tr><td colspan="12" class="muted center">正在自动加载...</td></tr>`;
   try {
-    state.hosts = await api("/api/hosts");
+    state.hosts = await api("/api/hosts" + (forceRefresh ? "?refresh=1" : ""));
   } catch (e) {
     tbody.innerHTML = `<tr><td colspan="7" class="muted center">加载失败: ${e.message}</td></tr>`;
     return;
@@ -86,7 +92,7 @@ async function loadHosts() {
   // 自动加载第一个在线宿主机的虚拟机列表
   const firstOnlineHost = state.hosts.find((h) => h.status === "online");
   if (firstOnlineHost) {
-    openVmSection(firstOnlineHost.id);
+    openVmSection(firstOnlineHost.id, forceRefresh);
   }
 }
 
@@ -165,7 +171,7 @@ function escapeHtml(s) {
 }
 
 // -------------------------------------------------- 虚拟机表格
-async function openVmSection(hostId) {
+async function openVmSection(hostId, forceRefresh = false) {
   state.activeHostId = hostId;
   const host = state.hosts.find((h) => h.id === hostId);
   const section = document.getElementById("vm-section");
@@ -176,7 +182,7 @@ async function openVmSection(hostId) {
   section.scrollIntoView({ behavior: "smooth", block: "start" });
 
   try {
-    state.vms = await api(`/api/hosts/${hostId}/vms`);
+    state.vms = await api(`/api/hosts/${hostId}/vms${forceRefresh ? "?refresh=1" : ""}`);
     document.getElementById("vm-section-sub").textContent = `共 ${state.vms.length} 台虚拟机`;
     renderVmTable();
   } catch (e) {
@@ -331,8 +337,7 @@ document.getElementById("add-host-form").addEventListener("submit", async (e) =>
 });
 
 document.getElementById("btn-refresh").addEventListener("click", () => {
-  loadHosts();
-  if (state.activeHostId) openVmSection(state.activeHostId);
+  loadHosts(true);
 });
 
 document.getElementById("btn-logout").addEventListener("click", async () => {

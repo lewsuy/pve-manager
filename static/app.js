@@ -52,109 +52,102 @@ function gauge(label, pct, color) {
   </div>`;
 }
 
-// -------------------------------------------------- 宿主机卡片
+// -------------------------------------------------- 宿主机表格
 async function loadHosts() {
-  const grid = document.getElementById("host-grid");
+  const tbody = document.getElementById("host-tbody");
   try {
     state.hosts = await api("/api/hosts");
   } catch (e) {
-    grid.innerHTML = `<div class="empty-state">加载失败: ${e.message}</div>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="muted center">加载失败: ${e.message}</td></tr>`;
     return;
   }
 
   if (state.hosts.length === 0) {
-    grid.innerHTML = `<div class="empty-state">还没有添加任何宿主机<br><button class="btn btn-primary" onclick="openAddModal()">+ 添加第一台宿主机</button></div>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="muted center">还没有添加任何宿主机<br><button class="btn btn-primary" onclick="openAddModal()">+ 添加第一台宿主机</button></td></tr>`;
     return;
   }
 
-  // 扁平化：每个节点渲染为一个独立卡片，横排显示
-  let cards = [];
+  // 扁平化：每个节点渲染为一行
+  let rows = [];
   for (const host of state.hosts) {
     const online = host.status === "online";
     if (!online) {
-      cards.push(renderHostCard(host, null));
+      rows.push(renderHostRow(host, null));
     } else if (host.nodes && host.nodes.length > 0) {
       for (const node of host.nodes) {
-        cards.push(renderHostCard(host, node));
+        rows.push(renderHostRow(host, node));
       }
     } else {
-      cards.push(renderHostCard(host, null));
+      rows.push(renderHostRow(host, null));
     }
   }
-  grid.innerHTML = cards.join("");
+  tbody.innerHTML = rows.join("");
 
-  grid.querySelectorAll(".host-card").forEach((card) => {
-    card.addEventListener("click", (e) => {
-      if (e.target.closest(".host-delete")) return;
-      const id = Number(card.dataset.id);
-      openVmSection(id);
-    });
-  });
-  grid.querySelectorAll(".host-delete").forEach((btn) => {
-    btn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      const id = Number(btn.dataset.id);
-      if (!confirm("确定要删除这台宿主机吗?(仅移除面板记录,不影响 PVE 本身)")) return;
-      await api(`/api/hosts/${id}`, { method: "DELETE" });
-      loadHosts();
-    });
-  });
+  // 自动加载第一个在线宿主机的虚拟机列表
+  const firstOnlineHost = state.hosts.find((h) => h.status === "online");
+  if (firstOnlineHost) {
+    openVmSection(firstOnlineHost.id);
+  }
 }
 
-function renderHostCard(host, node) {
+function renderHostRow(host, node) {
   const online = host.status === "online" && node !== null;
   const statusDot = `<span class="status-dot ${online ? "online" : "error"}"></span>`;
+  const statusText = online ? "在线" : (host.status === "online" ? "离线" : "异常");
 
-  let body;
+  let cells;
   if (!online) {
-    body = `<div class="host-error">${escapeHtml(host.error || "无法获取状态")}</div>`;
+    cells = `
+      <td class="muted" colspan="4">${escapeHtml(host.error || "无法获取状态")}</td>
+      <td>-</td>
+      <td>-</td>
+    `;
   } else {
-    body = renderNodeBlock(node);
+    cells = `
+      <td>${renderMiniGauge(node.cpu_percent)}</td>
+      <td>${renderMiniGauge(node.mem_used_percent)}</td>
+      <td>${renderMiniGauge(node.rootfs_used_percent)}</td>
+      <td>${renderStorageSummary(node.storages)}</td>
+    `;
   }
 
   const nodeLabel = node ? ` · ${escapeHtml(node.node)}` : "";
+  const name = escapeHtml(host.name) + nodeLabel;
 
   return `
-    <div class="host-card" data-id="${host.id}">
-      <div class="host-card-head">
-        <div>
-          <p class="host-name">${statusDot}${escapeHtml(host.name)}${nodeLabel}</p>
-          <p class="host-addr">${escapeHtml(host.hostname)}:${host.port}</p>
-        </div>
-        <button class="btn btn-ghost host-delete" data-id="${host.id}" title="删除">×</button>
-      </div>
-      ${body}
-    </div>
+    <tr class="host-row" data-id="${host.id}">
+      <td class="col-node">
+        <div class="row-node-name">${statusDot}${name}</div>
+        <div class="row-node-addr">${escapeHtml(host.hostname)}:${host.port}</div>
+      </td>
+      <td class="col-status">${statusText}</td>
+      ${cells}
+
+    </tr>
   `;
 }
 
-function renderNodeBlock(n) {
-  const rootPct = n.rootfs_used_percent;
-  return `
-    <div class="node-block">
-      <div class="node-block-head">
-        <span class="node-name"><span class="status-dot ${n.vm_status === "online" ? "running" : "stopped"}"></span>${escapeHtml(n.node)}</span>
-        <span class="node-uptime">运行 ${n.uptime}</span>
-      </div>
-      <div class="gauge-row">
-        ${gauge("CPU · " + (n.cpu_cores || "-") + "核", n.cpu_percent)}
-        ${gauge("内存 · " + fmtBytesShort(n.mem_total_bytes), n.mem_used_percent)}
-        ${gauge("系统盘", rootPct)}
-      </div>
-      ${renderStorageList(n.storages)}
-    </div>
-  `;
+function renderMiniGauge(pct) {
+  const val = pct === null || pct === undefined ? 0 : pct;
+  const cls = pctClass(pct);
+  return `<div class="mini-gauge ${cls}">
+    <div class="mini-ring" style="--pct:${val};"><span>${pct === null || pct === undefined ? "-" : Math.round(pct) + "%"}</span></div>
+  </div>`;
 }
 
-function renderStorageList(storages) {
-  if (!storages || storages.length === 0) return "";
-  return `<div class="storage-list">` + storages.map((s) => {
+function renderStorageSummary(storages) {
+  if (!storages || storages.length === 0) return `<span class="muted">无</span>`;
+  const sorted = [...storages].sort((a, b) => (b.used_percent || 0) - (a.used_percent || 0));
+  const top = sorted.slice(0, 2);
+  const more = sorted.length > 2 ? ` <span class="muted">+${sorted.length - 2} more</span>` : "";
+  const items = top.map((s) => {
     const cls = pctClass(s.used_percent);
-    return `<div class="storage-item">
-      <div class="storage-item-head"><span>${escapeHtml(s.name)} (${escapeHtml(s.type)})</span><span>${fmtBytesShort(s.used_bytes)} / ${fmtBytesShort(s.total_bytes)}</span></div>
-      <div class="bar-track"><div class="bar-fill ${cls}" style="width:${Math.min(s.used_percent, 100)}%"></div></div>
+    return `<div class="storage-mini">
+      <span>${escapeHtml(s.name)}</span>
+      <span class="storage-mini-pct ${cls}">${fmtBytesShort(s.used_bytes)}/${fmtBytesShort(s.total_bytes)}</span>
     </div>`;
-  }).join("") + `</div>`;
+  }).join("");
+  return `<div class="storage-mini-wrap">${items}${more}</div>`;
 }
 
 function fmtBytesShort(n) {
@@ -178,7 +171,7 @@ async function openVmSection(hostId) {
   const section = document.getElementById("vm-section");
   section.classList.remove("hidden");
   document.getElementById("vm-section-title").textContent = `虚拟机列表 · ${host ? host.name : hostId}`;
-  document.getElementById("vm-section-sub").textContent = "正在加载(含 Guest Agent 数据,首次可能较慢)…";
+  document.getElementById("vm-section-sub").textContent = "正在自动加载虚拟机列表(含 Guest Agent 数据,首次可能较慢)…";
   document.getElementById("vm-tbody").innerHTML = `<tr><td colspan="12" class="muted center">加载中…</td></tr>`;
   section.scrollIntoView({ behavior: "smooth", block: "start" });
 

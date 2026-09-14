@@ -26,8 +26,23 @@
 </header>
 
 <main>
-  <section id="host-grid" class="host-grid">
-    <!-- 宿主机卡片由 JS 渲染 -->
+  <section class="host-section">
+    <table class="host-table">
+      <thead>
+        <tr>
+          <th>节点名</th>
+          <th>状态</th>
+          <th>CPU</th>
+          <th>内存</th>
+          <th>系统盘</th>
+          <th>存储概况</th>
+          <th style="width:40px;"></th>
+        </tr>
+      </thead>
+      <tbody id="host-tbody">
+        <!-- 宿主机行由 JS 渲染 -->
+      </tbody>
+    </table>
   </section>
 
   <section id="vm-section" class="vm-section hidden">

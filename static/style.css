@@ -58,7 +58,7 @@ body {
   border: 1px solid var(--border);
   background: var(--panel-raised);
   color: var(--text);
-  cursor: pointer;
+  
   transition: border-color .15s, background .15s;
 }
 .btn:hover { border-color: var(--accent-dim); }
@@ -104,7 +104,7 @@ main { padding: 24px 28px 60px; max-width: 1400px; margin: 0 auto; }
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 18px;
-  cursor: pointer;
+  
   transition: border-color .15s, transform .1s;
   max-height: 600px;
   overflow-y: auto;
@@ -248,7 +248,7 @@ thead th {
   white-space: nowrap;
   position: sticky; top: 0;
   background: var(--panel);
-  cursor: pointer;
+  
 }
 thead th:hover { color: var(--text); }
 tbody td {
@@ -371,3 +371,161 @@ tbody tr:hover { background: rgba(79,184,255,0.04); }
   padding: 2px 6px;
   border-radius: 4px;
 }
+
+/* ---------------- host table ---------------- */
+.host-section {
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+  padding-right: 8px;
+}
+.host-section::-webkit-scrollbar {
+  width: 6px;
+}
+.host-section::-webkit-scrollbar-track {
+  background: var(--panel);
+  border-radius: 3px;
+}
+.host-section::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+.host-section::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+
+.host-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.host-table thead {
+  background: var(--panel-raised);
+}
+
+.host-table thead th {
+  text-align: left;
+  padding: 12px 14px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  background: var(--panel-raised);
+}
+
+.host-table tbody tr {
+  height: 72px;
+  border-bottom: 1px solid var(--border);
+  transition: background .15s;
+  
+}
+
+.host-table tbody tr:last-child {
+  border-bottom: none;
+}
+
+.host-table tbody tr:hover {
+  background: rgba(79,184,255,0.05);
+}
+
+.host-table tbody td {
+  padding: 10px 14px;
+  vertical-align: middle;
+}
+
+.col-node .row-node-name {
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 2px;
+}
+
+.col-node .row-node-addr {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.col-status {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* 迷你环形图 */
+.mini-gauge {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.mini-ring {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  background: conic-gradient(var(--accent) calc(var(--pct,0) * 1%), var(--panel-raised) 0);
+}
+
+.mini-ring::before {
+  content: "";
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--panel);
+}
+
+.mini-ring span {
+  position: relative;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.mini-gauge.danger .mini-ring {
+  background: conic-gradient(var(--error) calc(var(--pct,0) * 1%), var(--panel-raised) 0);
+}
+
+.mini-gauge.warn .mini-ring {
+  background: conic-gradient(var(--warn) calc(var(--pct,0) * 1%), var(--panel-raised) 0);
+}
+
+/* 存储缩略 */
+.storage-mini-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.storage-mini {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11px;
+  font-family: var(--mono);
+  white-space: nowrap;
+}
+
+.storage-mini-pct {
+  color: var(--text);
+}
+
+.storage-mini-pct.warn {
+  color: var(--warn);
+}
+
+.storage-mini-pct.danger {
+  color: var(--error);
+}
+
+

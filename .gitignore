@@ -1,0 +1,22 @@
+# Database
+hosts.db
+*.db
+
+# Secrets
+.secret_key
+users.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

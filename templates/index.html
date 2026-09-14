@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PVE 控制台</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">◈</span>
+    <div>
+      <h1>PVE 控制台</h1>
+      <p class="brand-sub">多宿主机资产总览</p>
+    </div>
+  </div>
+  <div class="topbar-actions">
+    <span id="clock" class="clock"></span>
+    <button id="btn-refresh" class="btn btn-ghost">↻ 刷新</button>
+    <button id="btn-add-host" class="btn btn-primary">+ 添加宿主机</button>
+    <span class="current-user">{{ session.get('username', '') }}</span>
+    <button id="btn-logout" class="btn btn-ghost">退出登录</button>
+  </div>
+</header>
+
+<main>
+  <section id="host-grid" class="host-grid">
+    <!-- 宿主机卡片由 JS 渲染 -->
+  </section>
+
+  <section id="vm-section" class="vm-section hidden">
+    <div class="vm-section-head">
+      <div>
+        <h2 id="vm-section-title">虚拟机列表</h2>
+        <p id="vm-section-sub" class="muted"></p>
+      </div>
+      <div class="vm-tools">
+        <input id="vm-filter" type="text" placeholder="按 ID / 名称 / IP / 节点 过滤…">
+        <button id="btn-export-excel" class="btn btn-ghost">⬇ 导出 Excel</button>
+        <button id="btn-close-vms" class="btn btn-ghost">关闭</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table id="vm-table">
+        <thead>
+          <tr>
+            <th data-key="vmid">ID</th>
+            <th data-key="name">名称</th>
+            <th data-key="node">节点</th>
+            <th data-key="ip_address">IP 地址</th>
+            <th data-key="status">状态</th>
+            <th data-key="uptime">运行时间</th>
+            <th data-key="cpu_alloc_cores">CPU 分配</th>
+            <th data-key="cpu_percent">CPU 使用率</th>
+            <th data-key="mem_alloc_human">内存分配</th>
+            <th data-key="mem_percent">内存使用率</th>
+            <th data-key="disk_alloc_total_human">存储分配</th>
+            <th data-key="disk_used_percent">磁盘使用率</th>
+          </tr>
+        </thead>
+        <tbody id="vm-tbody">
+          <tr><td colspan="12" class="muted center">加载中…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<!-- 添加宿主机 弹层 -->
+<div id="modal-backdrop" class="modal-backdrop hidden">
+  <div class="modal">
+    <h3>添加 PVE 宿主机</h3>
+    <form id="add-host-form">
+      <label>备注名称
+        <input name="name" placeholder="例如: pve-113" required>
+      </label>
+      <label>地址(IP / 域名)
+        <input name="hostname" placeholder="10.1.128.113" required>
+      </label>
+      <div class="row-2">
+        <label>端口
+          <input name="port" value="8006" required>
+        </label>
+        <label>Realm
+          <select name="realm">
+            <option value="pam">pam(系统账号)</option>
+            <option value="pve">pve(PVE 账号)</option>
+          </select>
+        </label>
+      </div>
+      <label>用户名
+        <input name="username" placeholder="root" required>
+      </label>
+      <label>密码
+        <input name="password" type="password" required>
+      </label>
+      <label class="checkbox-row">
+        <input type="checkbox" name="verify_ssl">
+        校验 SSL 证书(自签证书请保持不勾选)
+      </label>
+      <p id="add-host-error" class="form-error hidden"></p>
+      <div class="modal-actions">
+        <button type="button" id="btn-cancel-add" class="btn btn-ghost">取消</button>
+        <button type="submit" class="btn btn-primary">测试并添加</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

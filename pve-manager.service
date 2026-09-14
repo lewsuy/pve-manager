@@ -1,0 +1,22 @@
+[Unit]
+Description=PVE Console - 多宿主机管理面板
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/pve-manager
+ExecStart=/opt/pve-manager/venv/bin/gunicorn -w 2 -b 0.0.0.0:5055 --timeout 60 app:app
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pve-manager
+
+# 简单的资源限制,避免异常情况下拖垮宿主机(按需调整/删除)
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

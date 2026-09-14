@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>登录 · PVE 控制台</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="login-wrap">
+  <div class="login-card">
+    <div class="login-brand">
+      <span class="brand-mark">◈</span>
+      <div>
+        <h1>PVE 控制台</h1>
+        <p class="brand-sub">多宿主机资产总览</p>
+      </div>
+    </div>
+
+    <form method="POST" action="{{ url_for('login', next=request.args.get('next')) }}">
+      {% if no_users %}
+        <p class="form-error">尚未创建任何账号。请在服务器上执行:<br><code>python3 manage_users.py add &lt;用户名&gt;</code></p>
+      {% endif %}
+      <label>用户名
+        <input type="text" name="username" autofocus required {% if no_users %}disabled{% endif %}>
+      </label>
+      <label>密码
+        <input type="password" name="password" required {% if no_users %}disabled{% endif %}>
+      </label>
+      {% if error and not no_users %}
+        <p class="form-error">{{ error }}</p>
+      {% endif %}
+      <button type="submit" class="btn btn-primary login-btn" {% if no_users %}disabled{% endif %}>登 录</button>
+    </form>
+  </div>
+</div>
+
+</body>
+</html>
